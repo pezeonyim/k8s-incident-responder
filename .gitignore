@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets / local config (LLM API keys, kubeconfigs)
+.env
+*.env
+*.kubeconfig
+kubeconfig
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Eval run outputs (uncomment if you don't want to commit raw trial data)
+# eval/runs/
