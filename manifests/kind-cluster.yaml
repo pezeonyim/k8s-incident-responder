@@ -1,0 +1,10 @@
+# Minimal local Kubernetes cluster for the incident responder.
+# Bring up:  kind create cluster --name incident-responder --config manifests/kind-cluster.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: incident-responder
+nodes:
+  - role: control-plane
+  # A single node is enough for the v1 scenarios (CrashLoop, OOM, failed rollout).
+  # Uncomment a worker later if you add the "node NotReady" stretch scenario:
+  # - role: worker

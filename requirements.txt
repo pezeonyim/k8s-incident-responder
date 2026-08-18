@@ -1,0 +1,20 @@
+# --- LLM client (default: Ollama, free + local) ---
+ollama>=0.3.0
+# anthropic>=0.40.0     # uncomment if you set LLM_PROVIDER=anthropic (paid API)
+# openai>=1.40.0        # uncomment if you set LLM_PROVIDER=openai (paid API)
+
+# --- Structured output / validation for the diagnosis schema (spec §7) ---
+pydantic>=2.7.0
+
+# --- Kubernetes access (optional; you can also just shell out to kubectl) ---
+# kubernetes>=30.1.0
+
+# --- Terminal UI for the live reasoning stream (spec §9) ---
+rich>=13.7.0
+# textual>=0.70.0       # uncomment if you build the live-panel TUI later
+
+# --- Config / env loading ---
+python-dotenv>=1.0.0
+
+# --- Testing ---
+pytest>=8.2.0
