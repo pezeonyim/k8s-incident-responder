@@ -1,0 +1,72 @@
+# ============================================================================
+# Sample "victim" app for the incident responder.
+# A stock nginx web server we deploy now (M1) and deliberately break later (M2):
+#   - CrashLoopBackOff  -> feed it a broken nginx config
+#   - OOMKilled         -> squeeze the memory limit below what it needs
+#   - Failed rollout    -> roll out a bad image tag
+# For M1 the only goal is: get it running and understand each piece.
+# ============================================================================
+
+# --- Deployment: manages a set of identical pods (your app) ---------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-app
+  labels:
+    app: sample-app
+spec:
+  replicas: 2                     # run 2 identical copies (pods) for availability
+  selector:
+    matchLabels:
+      app: sample-app             # this Deployment owns pods with this label
+  template:                       # the "blueprint" for each pod it creates
+    metadata:
+      labels:
+        app: sample-app
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          # Resource requests (what it's guaranteed) and limits (its ceiling).
+          # The OOMKilled scenario later lives right here in the memory limit.
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
+          # Readiness: "is this pod ready to receive traffic yet?"
+          # Until this passes, the Service won't send requests to the pod.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          # Liveness: "is this pod still healthy?" If it fails repeatedly,
+          # Kubernetes restarts the container. This is a signal your watcher
+          # will care about later.
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+# --- Service: a stable address that load-balances across the pods ----------
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app
+  labels:
+    app: sample-app
+spec:
+  selector:
+    app: sample-app              # routes to any pod carrying this label
+  ports:
+    - port: 80                    # the Service's port
+      targetPort: 80              # the container port it forwards to
+  type: ClusterIP                 # reachable inside the cluster (we'll port-forward to test)
