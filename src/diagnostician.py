@@ -5,8 +5,6 @@ from typing import Literal
 import ollama
 from dotenv import load_dotenv
 import os
-from pydantic import ValidationError
-
 
 load_dotenv()
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
