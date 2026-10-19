@@ -15,12 +15,28 @@ from watcher import get_pod_signals, evaluate
 from controller import handle_incident
 
 
-def run_once(workload, namespace, auto_approve) -> dict | None:
+def detect(workload, namespace, wait=0, interval=3):
+    """Look for an incident, optionally waiting up to `wait` seconds for one.
+
+    The watcher deliberately ignores pods that are merely starting, so a failure
+    injected a second ago has not produced any evidence yet. Waiting is the
+    difference between "nothing is wrong" and "nothing is wrong *yet*".
+    """
+    deadline = time.time() + wait
+    while True:
+        signals = get_pod_signals(namespace=namespace, selector=f"app={workload}")
+        incident = evaluate(signals, workload=workload, namespace=namespace)
+        if incident is not None or time.time() >= deadline:
+            return incident
+        time.sleep(interval)
+
+
+def run_once(workload, namespace, auto_approve, wait=0) -> dict | None:
     """One detect-and-handle pass. Returns the result record, or None if healthy."""
-    signals = get_pod_signals(namespace=namespace, selector=f"app={workload}")
-    incident = evaluate(signals, workload=workload, namespace=namespace)
+    incident = detect(workload, namespace, wait=wait)
     if incident is None:
-        print("healthy - no incident")
+        print("healthy - no incident"
+              + (f" (waited {wait}s)" if wait else ""))
         return None
 
     detected_at = time.time()
@@ -38,7 +54,7 @@ def run_watch(workload, namespace, auto_approve, interval, cooldown):
     print(f"watching {workload} in {namespace} (every {interval}s) - Ctrl-C to stop")
     while True:
         try:
-            result = run_once(workload, namespace, auto_approve)
+            result = run_once(workload, namespace, auto_approve)  # watch mode polls anyway
         except RuntimeError as e:
             print(f"cluster unreachable: {e}")
             result = None
@@ -55,6 +71,8 @@ def main():
     ap.add_argument("--safe", action="store_true",
                     help="require human approval before applying any change")
     ap.add_argument("--interval", type=int, default=5, help="poll seconds (watch mode)")
+    ap.add_argument("--wait", type=int, default=0,
+                    help="seconds to wait for a failure to surface (once mode)")
     ap.add_argument("--cooldown", type=int, default=30, help="pause after acting (watch mode)")
     ap.add_argument("--out", default="dashboard.html", help="output path (dashboard mode)")
     args = ap.parse_args()
@@ -67,7 +85,7 @@ def main():
 
     auto_approve = not args.safe
     if args.mode == "once":
-        run_once(args.workload, args.namespace, auto_approve)
+        run_once(args.workload, args.namespace, auto_approve, wait=args.wait)
     else:
         try:
             run_watch(args.workload, args.namespace, auto_approve, args.interval, args.cooldown)

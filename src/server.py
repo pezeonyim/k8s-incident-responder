@@ -41,6 +41,8 @@ ALLOWLIST = {
     "rollout":      (["bash", "scenarios/rollout.sh"],   "Break it: roll out a bad image"),
     "reset":        (["bash", "scenarios/reset.sh"],     "Restore the app to healthy"),
     "report":       (["python", "src/main.py", "dashboard"], "Write the static HTML report"),
+    "rbac":         (["kubectl", "apply", "-f", "manifests/rbac.yaml"], "Apply the two least-privilege identities"),
+    "rbac-check":   (["bash", "scripts/rbac-check.sh"], "Prove the read-only identity cannot write"),
 }
 
 _jobs = {}
@@ -181,7 +183,16 @@ class Handler(BaseHTTPRequestHandler):
                 signals = get_pod_signals()
             except RuntimeError as e:
                 return self._send({"error": str(e)[:200]}, 503)
+            # Wait a little: the watcher ignores pods that are merely starting, so a
+            # failure injected seconds ago has not shown evidence yet.
+            deadline = time.time() + 30
             incident = evaluate(signals)
+            while incident is None and time.time() < deadline:
+                time.sleep(3)
+                try:
+                    incident = evaluate(get_pod_signals())
+                except RuntimeError:
+                    break
             if incident is None:
                 _pending["proposal"] = None
                 return self._send({"error": "nothing is broken - inject a failure first"}, 400)

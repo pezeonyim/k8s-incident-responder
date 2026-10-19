@@ -5,6 +5,7 @@ from typing import Literal
 import ollama
 from dotenv import load_dotenv
 import os
+from identity import as_diagnostician
 
 load_dotenv()
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
@@ -25,7 +26,7 @@ class Diagnosis(BaseModel):
 
 
 def get_pod_logs(pod_name, namespace, previous=False):
-    logs = f"kubectl logs {pod_name} -n {namespace} --tail=50".split()
+    logs = f"kubectl logs {pod_name} -n {namespace} --tail=50".split() + as_diagnostician()
 
     if previous:
         logs.append("--previous")
@@ -36,7 +37,7 @@ def get_pod_logs(pod_name, namespace, previous=False):
 
 
 def get_pod_events(pod_name, namespace):
-    events = f"kubectl describe pod {pod_name} -n {namespace}".split()
+    events = f"kubectl describe pod {pod_name} -n {namespace}".split() + as_diagnostician()
     result = subprocess.run(events, capture_output=True, text=True)
     return result.stdout
 

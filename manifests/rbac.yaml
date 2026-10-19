@@ -1,0 +1,87 @@
+# ============================================================================
+# Least privilege for the responder.
+#
+# Two identities, because the two halves of the system need different powers:
+#   responder-diagnostician  reads evidence. It CANNOT change anything.
+#   responder-remediator     changes the deployment. It cannot read pod logs.
+#
+# This is enforced by the cluster, not by our code being well-behaved: even if
+# the diagnostician were compromised or buggy, the API server rejects any write
+# it attempts. Verify with ./scripts/rbac-check.sh
+#
+#   kubectl apply -f manifests/rbac.yaml
+# ============================================================================
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: responder-diagnostician
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: responder-diagnostician
+  namespace: default
+rules:
+  # Read pod state and the container logs that explain a failure.
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events"]
+    verbs: ["get", "list", "watch"]
+  # Read-only view of workloads, for context during diagnosis.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  # Note the absence of create/update/patch/delete anywhere above.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: responder-diagnostician
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: responder-diagnostician
+    namespace: default
+roleRef:
+  kind: Role
+  name: responder-diagnostician
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: responder-remediator
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: responder-remediator
+  namespace: default
+rules:
+  # Exactly what the three allowlisted actions need: patch a deployment's spec
+  # (raise-memory-limit) and roll it back (rollout undo reads ReplicaSet history
+  # and updates the Deployment).
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list"]
+  # Deliberately NOT granted: pods/log (it has no business reading logs),
+  # delete on anything, and any access to secrets or other namespaces.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: responder-remediator
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: responder-remediator
+    namespace: default
+roleRef:
+  kind: Role
+  name: responder-remediator
+  apiGroup: rbac.authorization.k8s.io

@@ -2,6 +2,7 @@ import subprocess
 import json
 from pydantic import BaseModel
 import time
+from identity import as_diagnostician
 
 class PodSignal(BaseModel):
     """Represents the health and lifecycle state of a Kubernetes pod."""
@@ -25,7 +26,7 @@ class Incident(BaseModel):
 def get_pod_signals(namespace="default", selector="app=sample-app") -> list[PodSignal]:
     """Gets pods from a Kubernetes namespace matching the given selector. Returns a list of PodSignals."""
     pod_signals = list()
-    kub = f"kubectl get pods -n {namespace} -l {selector} -o json".split()
+    kub = f"kubectl get pods -n {namespace} -l {selector} -o json".split() + as_diagnostician()
     result = subprocess.run(kub, capture_output=True, text=True)
 
     # Exit early if kubectl fails.

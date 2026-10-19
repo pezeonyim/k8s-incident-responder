@@ -88,6 +88,30 @@ by policy:
   config the safe move is to return to a version known to work. Surgical config
   patching is a future upgrade behind stronger safeguards, not a v1 feature.
 
+## Least privilege
+
+The two halves of the system run as different Kubernetes identities, defined in
+`manifests/rbac.yaml`:
+
+- **`responder-diagnostician`** reads pods, logs and events. It has no create,
+  update, patch or delete verb anywhere.
+- **`responder-remediator`** can patch and roll back the deployment — and nothing
+  else. It cannot read pod logs; that isn't its job.
+
+Every `kubectl` call impersonates the appropriate identity (`--as`), so the API
+server authorises against that ServiceAccount's Role. This is enforced by the
+cluster, not by the code being well-behaved: a write attempted under the read-only
+identity is rejected even if the diagnostician were compromised or buggy. Prove it:
+
+```bash
+./scripts/rbac-check.sh
+```
+
+It shows the diagnostician reading pods successfully, being **refused** when it
+attempts a write, the remediator being allowed that same write, and the remediator
+being refused when it tries to read logs. Note that a server-side dry run is still
+an authorised write request, so previews are subject to the same boundary.
+
 ## Quick start
 
 Requires Docker, `kind`, `kubectl`, Python 3, and [Ollama](https://ollama.com)
@@ -101,6 +125,7 @@ cp .env.example .env            # set OLLAMA_MODEL if you use a different model
 
 ./scripts/dev.sh cluster-up
 kubectl apply -f manifests/sample-app.yaml
+kubectl apply -f manifests/rbac.yaml     # the two least-privilege identities
 ```
 
 Break it, then let the responder fix it:
@@ -155,11 +180,17 @@ just a metric. Both are fixed; the trajectory across runs was 0% → 67/100/100%
 - The model's self-reported confidence is unreliable (the same clear case has come
   back as 0.09, 0.9 and 1.0), so nothing is gated on it. Action and evidence are the
   trustworthy signals.
-- Runs under a single Kubernetes identity. Splitting diagnosis (read-only) from
-  remediation (write-scoped) with RBAC is the obvious next hardening step.
+- Scoped to one namespace, with identities bound by Role rather than ClusterRole.
+  A multi-namespace deployment would need its permission model revisited.
 
 ## Built with
 
 Python, Pydantic for validated models at every boundary, `kubectl` for cluster
 access, Ollama for local inference, and the Python standard library for the control
 panel. No cloud services.
+
+---
+
+Kubernetes® is a registered trademark of The Linux Foundation. This project is an
+independent personal project, built for use with Kubernetes, and is not affiliated
+with, sponsored or endorsed by The Linux Foundation, CNCF, or the Kubernetes project.

@@ -14,6 +14,8 @@ import subprocess
 import json
 import re
 
+from identity import as_remediator
+
 # Kubernetes memory quantities we accept, e.g. "512Mi" or "1Gi".
 # Anything that doesn't match this shape is rejected outright.
 MEM_RE = re.compile(r"^(\d+)(Mi|Gi)$")
@@ -33,8 +35,8 @@ def build_command(action, workload, namespace) -> list[str]:
         patch = [{"op": "replace",
                   "path": "/spec/template/spec/containers/0/resources/limits/memory",
                   "value": new_limit}]
-        return ["kubectl", "patch", "deployment", workload, "-n", namespace,
-                "--type=json", "-p", json.dumps(patch)]
+        return (["kubectl", "patch", "deployment", workload, "-n", namespace,
+                 "--type=json", "-p", json.dumps(patch)] + as_remediator())
 
     # Both revert actions share one operation by design. We deliberately do NOT
     # let the system synthesize a corrected config and apply it to a live
@@ -42,7 +44,7 @@ def build_command(action, workload, namespace) -> list[str]:
     # the last revision known to work. Surgical config patching is a future
     # upgrade, gated behind stronger safeguards.
     elif action.type in ("rollback-deployment", "patch-config"):
-        return ["kubectl", "rollout", "undo", f"deployment/{workload}", "-n", namespace]
+        return ["kubectl", "rollout", "undo", f"deployment/{workload}", "-n", namespace] + as_remediator()
 
     # Defense in depth: the Diagnosis schema already constrains action.type to
     # the allowlist, but we refuse anything unexpected here too rather than
@@ -97,7 +99,7 @@ def preview(command, workload, namespace):
         # `rollout undo` has no server-side dry run, so the honest preview is to
         # state the intended command and show the revision history it would fall back to.
         print("would run:", " ".join(command))
-        hist = ["kubectl", "rollout", "history", f"deployment/{workload}", "-n", namespace]
+        hist = ["kubectl", "rollout", "history", f"deployment/{workload}", "-n", namespace] + as_remediator()
         result = subprocess.run(hist, capture_output=True, text=True)
         print(result.stdout or result.stderr)
 
