@@ -31,4 +31,5 @@ handoff/
 audit.jsonl
 *.jsonl
 dashboard.html
+# docs/ is the published snapshot - deliberately committed
 eval/runs/

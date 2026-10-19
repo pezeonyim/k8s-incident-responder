@@ -1,0 +1,30 @@
+{
+  "name": "k8s-incident-responder",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+
+  // kind builds the cluster out of Docker containers, so the dev container needs
+  // its own Docker daemon. This is exactly what a PaaS like Render will not give
+  // you, and why Codespaces is the one practical "run it yourself" host.
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+
+  "forwardPorts": [8420],
+  "portsAttributes": {
+    "8420": { "label": "Control panel", "onAutoForward": "openPreview" }
+  },
+
+  // A 2-core machine will run the cluster but struggle with a local model.
+  "hostRequirements": { "cpus": 4, "memory": "8gb", "storage": "32gb" },
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "redhat.vscode-yaml"],
+      "settings": { "python.defaultInterpreterPath": "/workspaces/k8s-incident-responder/.venv/bin/python" }
+    }
+  },
+
+  "remoteUser": "vscode"
+}

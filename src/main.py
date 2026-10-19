@@ -74,7 +74,7 @@ def main():
     ap.add_argument("--wait", type=int, default=0,
                     help="seconds to wait for a failure to surface (once mode)")
     ap.add_argument("--cooldown", type=int, default=30, help="pause after acting (watch mode)")
-    ap.add_argument("--out", default="dashboard.html", help="output path (dashboard mode)")
+    ap.add_argument("--out", default="docs/index.html", help="output path (dashboard mode)")
     args = ap.parse_args()
 
     if args.mode == "dashboard":

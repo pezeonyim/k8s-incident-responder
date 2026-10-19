@@ -70,6 +70,13 @@ h2 .spacer{flex:1}
   text-transform:uppercase;transition:border-color .12s,color .12s}
 .ghost:hover{border-color:var(--accent);color:var(--accent)}
 .ghost svg{width:13px;height:13px}
+.picker{display:flex;align-items:center;gap:8px;margin:0 0 10px;
+  border:1px solid var(--border);border-radius:9px;padding:9px 11px;background:var(--surface)}
+.picker svg{width:16px;height:16px;color:var(--accent);flex:none}
+.picker label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+.picker select{flex:1;min-width:0;background:var(--plane);color:var(--ink);font:inherit;font-size:12px;
+  border:1px solid var(--border);border-radius:6px;padding:4px 6px}
+.picker select:disabled{opacity:.5}
 h2 svg{width:15px;height:15px;color:var(--accent)}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px}
 svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
@@ -165,6 +172,9 @@ dt{color:var(--muted)} dd{margin:0;overflow-wrap:anywhere}
    <path d="M9 12.2l2.2 2.2L15.3 10"/></symbol>
  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2 12h4l3-7 4 14 3-7h6"/></symbol>
  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+ <symbol id="i-model" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/>
+   <circle cx="9.5" cy="10" r="1.2"/><circle cx="14.5" cy="10" r="1.2"/><path d="M9 14.8h6"/>
+   <path d="M12 4V2M8 22v-2M16 22v-2"/></symbol>
  <symbol id="i-clear" viewBox="0 0 24 24"><path d="M4 7h16"/>
    <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
    <path d="M6.5 7l.8 12a1 1 0 0 0 1 .9h7.4a1 1 0 0 0 1-.9l.8-12"/><path d="M10 11v5M14 11v5"/></symbol>
@@ -186,6 +196,9 @@ dt{color:var(--muted)} dd{margin:0;overflow-wrap:anywhere}
   <div class="grp infra"><h3><svg><use href="#i-server"/></svg>Environment</h3><div id="g-env"></div></div>
   <div class="grp danger"><h3><svg><use href="#i-alert"/></svg>Break it</h3><div id="g-break"></div></div>
   <div class="grp infra"><h3><svg><use href="#i-shield"/></svg>Respond</h3>
+    <div class="picker"><svg><use href="#i-model"/></svg>
+      <label for="model">Model</label>
+      <select id="model" title="Which local model performs the diagnosis"></select></div>
     <button class="btn primary" id="btn-propose"><svg><use href="#i-scan"/></svg>
       <span><b>Diagnose &amp; propose a fix</b>
       <code>detect → diagnose (LLM) → policy check → preview</code></span></button>
@@ -301,6 +314,8 @@ function renderPending(p){
       <dt>Action</dt><dd><code>${esc(p.action)}</code></dd>
       <dt>Confidence</dt><dd>${p.confidence==null?'—':p.confidence.toFixed(2)}
         <span style="color:var(--muted)">(model self-report — not a gate)</span></dd>
+      <dt>Diagnosed by</dt><dd><code>${esc(p.model||'—')}</code>${
+        p.diagnosis_seconds?` <span style="color:var(--muted)">in ${p.diagnosis_seconds}s</span>`:''}</dd>
       <dt>Policy</dt><dd>${esc(p.reason)}</dd>
       ${p.command?`<dt>Command</dt><dd><code>${esc(p.command)}</code></dd>`:''}
     </dl>
@@ -340,6 +355,8 @@ function renderIncidents(list){
       <span style="color:var(--muted)">${st==='skipped'?'not reached':esc(st)}</span></span>`).join('')}</div>
     <dl><dt>Root cause</dt><dd>${esc(g.root_cause||'—')}</dd>
       <dt>Action</dt><dd>${g.action?`<code>${esc(g.action)}</code>`:'—'}</dd>
+      ${g.model?`<dt>Diagnosed by</dt><dd><code>${esc(g.model)}</code>${
+        g.diagnosis_seconds?` <span style="color:var(--muted)">in ${g.diagnosis_seconds}s</span>`:''}</dd>`:''}
       ${g.mttr?`<dt>Recovery</dt><dd>${g.mttr}s</dd>`:''}
       ${g.policy_reason?`<dt>Policy</dt><dd>${esc(g.policy_reason)}</dd>`:''}</dl>
   </div>`).join('');
@@ -379,8 +396,25 @@ async function refresh(){
     document.querySelectorAll('[data-run]').forEach(b=>b.onclick=()=>runAction(b.dataset.run));
     $('#btn-propose').onclick=propose;
     $('#btn-clear').onclick=clearTerm;     // stays enabled while a job runs
+    $('#model').onchange=async e=>{
+      const name=e.target.value;
+      const j=await (await fetch('/api/model',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({name})})).json();
+      write(j.error?('error: '+j.error):('model set to '+j.model), j.error?'err':'dim');
+    };
     built=true;
   }
+  // repopulate only when the option list actually changes, so an open dropdown
+  // isn't yanked out from under the user by the 3s refresh
+  const sel=$('#model'), want=(s.models||[]).join('|');
+  if(sel && sel.dataset.opts!==want){
+    sel.dataset.opts=want;
+    sel.innerHTML=(s.models||[]).map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('')
+      || `<option value="">${esc(s.model||'no models found')}</option>`;
+    sel.disabled=!(s.models||[]).length;
+  }
+  if(sel && s.model && sel.value!==s.model && (s.models||[]).includes(s.model)) sel.value=s.model;
+
   const c=s.cluster, chip=$('#chip');
   if(!c.reachable){chip.className='pill skip';chip.innerHTML='<span class="dot"></span>cluster unreachable';}
   else if(c.incident){chip.className='pill bad';chip.innerHTML='<span class="dot"></span>'+esc(c.incident.symptom);}

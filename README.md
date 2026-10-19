@@ -112,6 +112,39 @@ attempts a write, the remediator being allowed that same write, and the remediat
 being refused when it tries to read logs. Note that a server-side dry run is still
 an authorised write request, so previews are subject to the same boundary.
 
+## Run it without installing anything
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/pezeonyim/k8s-incident-responder)
+
+The repo ships a dev container with Docker-in-Docker, `kind` and `kubectl`, so a
+Codespace can run the real thing — your own cluster, your own audit log, nothing
+shared and nothing publicly exposed. `postCreate` installs the toolchain; the
+cluster and model are two commands it prints for you.
+
+A Codespace has no GPU, so pick a model to match: a hosted API (fast, needs a key
+stored as a Codespaces secret) or a small local model such as `llama3.2:3b`
+(free, noticeably slower on CPU). The control panel's model picker shows which
+model produced each diagnosis and how long it took, which is the honest way to
+decide what a given host can carry.
+
+> A recorded snapshot of a real run is published from [`docs/`](docs/) — useful if
+> you only want to see the results. It executes nothing.
+
+## Choosing a model
+
+`LLM_PROVIDER` selects the backend; the rest of the system neither knows nor cares,
+because it receives a validated `Diagnosis` either way.
+
+| Provider | Cost | Notes |
+|---|---|---|
+| `ollama` (default) | free | Runs locally, nothing leaves the machine. Needs RAM; an 8B model wants ~8GB. |
+| `openai` | paid | Output constrained to the schema by the API. |
+| `anthropic` | paid | Schema supplied in the prompt; Pydantic validation and the retry loop enforce it. |
+
+In every case the guarantee is the same: the provider's structured-output support
+is an optimisation, and **validation plus the retry loop is what actually enforces
+the contract**.
+
 ## Quick start
 
 Requires Docker, `kind`, `kubectl`, Python 3, and [Ollama](https://ollama.com)

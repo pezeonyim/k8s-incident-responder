@@ -11,7 +11,7 @@ record explains what the system did and why even when it chose to do nothing.
 import time
 
 from audit import log_event
-from diagnostician import diagnose, ProposedAction
+from diagnostician import diagnose_with_meta, ProposedAction
 from policy import check_policy
 from remediator import build_command, preview, apply
 from verifier import verify
@@ -58,21 +58,23 @@ def propose(incident, audit_path=None) -> dict:
     }, audit_path)
 
     try:
-        diagnosis = diagnose(incident)
+        diagnosis, meta = diagnose_with_meta(incident)
     except Exception as e:
         out["error"] = f"diagnosis failed: {e}"
         log_event("diagnosis_failed", {"error": str(e)}, audit_path)
         return out
 
-    def _log_diagnosis(d, retry=False):
+    def _log_diagnosis(d, m, retry=False):
         log_event("diagnosis", {
             "incident_type": d.incident_type, "root_cause": d.root_cause,
             "confidence": d.confidence, "action": d.proposed_action.type,
             "params": d.proposed_action.params, "evidence": d.evidence,
-            "reasoning": d.reasoning, **({"retry": True} if retry else {}),
+            "reasoning": d.reasoning, "model": m.get("model"),
+            "diagnosis_seconds": m.get("seconds"),
+            **({"retry": True} if retry else {}),
         }, audit_path)
 
-    _log_diagnosis(diagnosis)
+    _log_diagnosis(diagnosis, meta)
     allowed, reason = check_policy(diagnosis, incident)
     log_event("policy_decision", {"allowed": allowed, "reason": reason}, audit_path)
 
@@ -80,15 +82,15 @@ def propose(incident, audit_path=None) -> dict:
     if not allowed:
         log_event("rediagnosis_requested", {"reason": reason}, audit_path)
         try:
-            diagnosis = diagnose(incident, feedback=reason)
+            diagnosis, meta = diagnose_with_meta(incident, feedback=reason)
         except Exception as e:
             out.update(diagnosis=diagnosis, reason=f"{reason}; re-diagnosis failed: {e}")
             return out
-        _log_diagnosis(diagnosis, retry=True)
+        _log_diagnosis(diagnosis, meta, retry=True)
         allowed, reason = check_policy(diagnosis, incident)
         log_event("policy_decision", {"allowed": allowed, "reason": reason, "retry": True}, audit_path)
 
-    out.update(diagnosis=diagnosis, allowed=allowed, reason=reason)
+    out.update(diagnosis=diagnosis, allowed=allowed, reason=reason, meta=meta)
     if not allowed:
         return out
 

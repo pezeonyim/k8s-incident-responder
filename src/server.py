@@ -24,6 +24,7 @@ import audit
 import dashboard
 from watcher import get_pod_signals, evaluate
 from controller import propose, execute
+from diagnostician import current_model, set_model, LLM_PROVIDER
 from ui import PAGE
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -78,6 +79,31 @@ def start_job(action_id: str) -> int:
     return job_id
 
 
+def available_models() -> list[str]:
+    """Models this machine can actually run, from `ollama list`.
+
+    Returned to the browser so the picker offers real choices; switching is
+    validated against this same list server-side, so the client cannot name an
+    arbitrary model any more than it can name an arbitrary command.
+    """
+    if LLM_PROVIDER != "ollama":
+        # Hosted providers have no local inventory to enumerate; offer what is
+        # configured rather than guessing at a catalogue that changes over time.
+        return [current_model()] if current_model() else []
+    try:
+        out = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if out.returncode != 0:
+        return []
+    names = []
+    for line in out.stdout.splitlines()[1:]:          # skip the header row
+        name = line.split()[0] if line.split() else ""
+        if name:
+            names.append(name)
+    return names
+
+
 def cluster_state() -> dict:
     """Current pods and incident, or a flag that the cluster is unreachable."""
     try:
@@ -101,7 +127,8 @@ def history() -> dict:
         "summary": dashboard.summarise(groups),
         "incidents": [{k: g[k] for k in
                        ("ts", "symptom", "root_cause", "action", "confidence",
-                        "mttr", "recovered", "policy_reason", "stages")}
+                        "mttr", "recovered", "policy_reason", "stages",
+                        "model", "diagnosis_seconds")}
                       for g in reversed(groups[-12:])],
         "metrics": (ev or {}).get("summary") or [],
     }
@@ -124,6 +151,8 @@ def pending_view() -> dict | None:
         "confidence": getattr(d, "confidence", None),
         "reasoning": getattr(d, "reasoning", None),
         "evidence": getattr(d, "evidence", None) or [],
+        "model": (p.get("meta") or {}).get("model"),
+        "diagnosis_seconds": (p.get("meta") or {}).get("seconds"),
     }
 
 
@@ -149,8 +178,11 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif u.path == "/api/state":
+            models = available_models()
             self._send({"cluster": cluster_state(), **history(),
                         "pending": pending_view(),
+                        "models": models, "model": current_model(),
+                        "provider": LLM_PROVIDER,
                         "actions": {k: v[1] for k, v in ALLOWLIST.items()},
                         "commands": {k: " ".join(v[0]) for k, v in ALLOWLIST.items()}})
         elif u.path == "/api/job":
@@ -177,6 +209,14 @@ class Handler(BaseHTTPRequestHandler):
             if action not in ALLOWLIST:
                 return self._send({"error": f"action '{action}' is not allowed"}, 400)
             return self._send({"job": start_job(action)})
+
+        if u.path == "/api/model":
+            name = payload.get("name", "")
+            if name not in available_models():
+                return self._send({"error": f"model '{name}' is not installed"}, 400)
+            set_model(name)
+            audit.log_event("model_selected", {"model": name})
+            return self._send({"model": current_model()})
 
         if u.path == "/api/propose":
             try:
