@@ -50,27 +50,63 @@ def get_pod_signals(namespace="default", selector="app=sample-app") -> list[PodS
     return pod_signals
 
 
+# Waiting reasons that mean "still starting", not "broken". A pod sitting in one
+# of these is mid-rollout, which is normal and must not raise an incident.
+STARTING_REASONS = {None, "ContainerCreating", "PodInitializing", "Pending"}
+
+
+def _is_failing(p: PodSignal) -> bool:
+    """True only when a pod shows actual evidence of failure.
+
+    Being not-ready is NOT enough: every pod is briefly not-ready during a normal
+    rollout. Requiring evidence stops the watcher firing on routine churn (which
+    otherwise produces a stream of meaningless 'Unhealthy' incidents).
+    """
+    if p.ready:
+        return False
+    if p.waiting_reason not in STARTING_REASONS:
+        return True          # CrashLoopBackOff, ImagePullBackOff, ErrImagePull, ...
+    if p.last_terminated_reason or p.last_exit_code:
+        return True          # it has died at least once
+    return p.restart_count >= 1
+
+
 def evaluate(pod_signals: list[PodSignal], workload="sample-app", namespace="default") -> Incident | None:
     """Takes a list of signals and evaluates if something went wrong."""
-    # Return none (meaning no incidents) if all pods are ready.
-    if all(p.ready for p in pod_signals):
+    # Classify from the failing pods only. Healthy bystanders - and pods left over
+    # from an earlier incident - must not contribute evidence, or stale signals
+    # (an old OOMKilled termination) hijack the verdict for an unrelated failure.
+    failing = [p for p in pod_signals if _is_failing(p)]
+
+    # No pod shows evidence of failure: either everything is ready, or something
+    # is merely starting up. Neither is an incident.
+    if not failing:
         return None
 
     # Branch cases: Symptoms are ImagePullBackOff, OOMKilled, CrashLoopBackOff, or unhealthy.
-    elif any(p.waiting_reason in ("ImagePullBackOff", "ErrImagePull") for p in pod_signals):
+    # Order matters: a repeatedly OOMKilled pod ALSO reports CrashLoopBackOff, so
+    # OOM must be tested first or every OOM is misread as a crash loop.
+    if any(p.waiting_reason in ("ImagePullBackOff", "ErrImagePull") for p in failing):
         symptom = "ImagePullBackOff"
 
-    elif any(p.last_terminated_reason == "OOMKilled" or p.last_exit_code == 137 for p in pod_signals):
+    elif any(p.last_terminated_reason == "OOMKilled" or p.last_exit_code == 137 for p in failing):
         symptom = "OOMKilled"
 
-    elif any(p.waiting_reason == "CrashLoopBackOff" for p in pod_signals):
+    # The literal CrashLoopBackOff waiting reason only appears once Kubernetes has
+    # entered backoff. Before that there is a window where the container has
+    # already died (lastState.terminated: Error / exit 1) but is still being
+    # restarted - same failure, no label yet. Treat a non-OOM termination as the
+    # crash-loop signature so a fast poll does not fall through to "Unhealthy".
+    elif any(p.waiting_reason == "CrashLoopBackOff"
+             or (p.last_terminated_reason and p.last_terminated_reason != "OOMKilled")
+             for p in failing):
         symptom = "CrashLoopBackOff"
 
     else:
         symptom = "Unhealthy"
 
     # Number of pods that are not healthy.
-    n = len([p for p in pod_signals if not p.ready])
+    n = len(failing)
 
     return Incident(
         workload = workload,

@@ -84,8 +84,28 @@ def handle_incident(incident, auto_approve=True, detected_at=None, audit_path=No
 
     # --- 2. policy check ---
     allowed, reason = check_policy(diagnosis, incident)
-    result["allowed"] = allowed
     log_event("policy_decision", {"allowed": allowed, "reason": reason}, audit_path)
+
+    # One corrected retry: hand the refusal back to the model and re-check. The
+    # policy itself is unchanged - a second bad proposal is still refused.
+    if not allowed:
+        log_event("rediagnosis_requested", {"reason": reason}, audit_path)
+        try:
+            diagnosis = diagnose(incident, feedback=reason)
+        except Exception as e:
+            result["allowed"], result["detail"] = False, f"{reason}; re-diagnosis failed: {e}"
+            return result
+        result["action"] = diagnosis.proposed_action.type
+        log_event("diagnosis", {
+            "incident_type": diagnosis.incident_type, "root_cause": diagnosis.root_cause,
+            "confidence": diagnosis.confidence, "action": diagnosis.proposed_action.type,
+            "params": diagnosis.proposed_action.params, "evidence": diagnosis.evidence,
+            "reasoning": diagnosis.reasoning, "retry": True,
+        }, audit_path)
+        allowed, reason = check_policy(diagnosis, incident)
+        log_event("policy_decision", {"allowed": allowed, "reason": reason, "retry": True}, audit_path)
+
+    result["allowed"] = allowed
     if not allowed:
         result["detail"] = reason
         return result

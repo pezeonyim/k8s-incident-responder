@@ -41,7 +41,7 @@ def get_pod_events(pod_name, namespace):
     return result.stdout
 
 
-def diagnose(incident):
+def diagnose(incident, feedback=None):
     unhealthy = [p for p in incident.pods if not p.ready]
     evidence_text = ""
     for p in unhealthy:
@@ -76,6 +76,13 @@ def diagnose(incident):
     The root_cause should describe the underlying problem, not the fix.
 
     Base your evidence strictly on what appears above; do not invent details. Set confidence honestly based on how clearly the evidence points to one cause."""
+
+    # A refused proposal is re-diagnosed once with the refusal reason attached, so
+    # the model can correct itself rather than the incident simply going unfixed.
+    # The gate is never loosened - only the model gets another attempt.
+    if feedback:
+        prompt += (f"\n\nYour previous proposal was REJECTED by the safety policy:\n"
+                   f"{feedback}\nPropose a different action that is valid for this symptom.")
 
     resp = ollama.chat(
         model=OLLAMA_MODEL,

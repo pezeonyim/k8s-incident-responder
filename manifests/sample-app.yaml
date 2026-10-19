@@ -16,6 +16,9 @@ metadata:
     app: sample-app
 spec:
   replicas: 2                     # run 2 identical copies (pods) for availability
+  # Keep only the last few ReplicaSets. Rollback needs history, but every injected
+  # failure creates a revision, so without a cap `rollout history` grows unbounded.
+  revisionHistoryLimit: 5
   selector:
     matchLabels:
       app: sample-app             # this Deployment owns pods with this label

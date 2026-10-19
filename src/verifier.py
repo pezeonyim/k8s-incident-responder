@@ -7,7 +7,7 @@ in the system rather than two that can drift apart.
 
 import time
 
-from watcher import get_pod_signals, evaluate
+from watcher import get_pod_signals, evaluate, _is_failing
 
 
 def verify(workload="sample-app", namespace="default", timeout=120, interval=5) -> tuple[bool, str]:
@@ -26,15 +26,22 @@ def verify(workload="sample-app", namespace="default", timeout=120, interval=5) 
 
     while time.time() < deadline:
         try:
-            incident = evaluate(get_pod_signals(namespace=namespace, selector=f"app={workload}"),
-                                workload=workload, namespace=namespace)
+            signals = get_pod_signals(namespace=namespace, selector=f"app={workload}")
         except RuntimeError as e:
             return False, f"could not read cluster state: {e}"
 
-        if incident is None:
+        # Verification is deliberately STRICTER than detection. The watcher
+        # ignores pods that are merely starting (so routine rollout churn is not
+        # an incident); the verifier must not, or it would declare victory while
+        # the replacement pods are still coming up. Recovery means every pod is
+        # actually ready.
+        if signals and all(p.ready for p in signals):
             return True, "all pods ready"
 
-        last_symptom = incident.symptom
+        if any(_is_failing(p) for p in signals):
+            incident = evaluate(signals, workload=workload, namespace=namespace)
+            last_symptom = incident.symptom if incident else last_symptom
+
         time.sleep(interval)
 
     return False, f"still unhealthy after {timeout}s (symptom: {last_symptom})"
