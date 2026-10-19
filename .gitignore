@@ -23,3 +23,12 @@ kubeconfig
 
 # Eval run outputs (uncomment if you don't want to commit raw trial data)
 # eval/runs/
+
+# Private working notes / model handoff (never committed)
+handoff/
+
+# Generated artifacts
+audit.jsonl
+*.jsonl
+dashboard.html
+eval/runs/

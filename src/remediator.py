@@ -81,7 +81,7 @@ def safe_memory(value, default="512Mi"):
 
 
 def preview(command, workload, namespace):
-    """Show what the command would do, without changing anything.
+    """Shows a preview of the command without making changes.
 
     Not every kubectl operation dry-runs the same way, so each branch previews
     in the way that operation allows.
@@ -103,7 +103,7 @@ def preview(command, workload, namespace):
 
 
 def apply(command):
-    """Execute the remediation for real.
+    """Execute the remediation.
 
     Returns the outcome rather than printing it, so the caller (the controller)
     can record it in the audit log and decide how to handle a failure.
@@ -112,18 +112,16 @@ def apply(command):
     return result.returncode, result.stdout, result.stderr
 
 
+def check_policy(diagnosis, incident) -> tuple[bool, str]:
+    """Return (allowed, reason)."""
+
+
 def main():
-    # Temporary scaffolding: prints the command each action type would produce,
-    # including two deliberately bad memory values to prove the guards fire.
     from diagnostician import ProposedAction
-    for a in [
-        ProposedAction(type="raise-memory-limit", params={"memory_limit": "256Mi"}),
-        ProposedAction(type="raise-memory-limit", params={"memory_limit": "999Gi"}),  # cap should kick in
-        ProposedAction(type="raise-memory-limit", params={}),                          # default should kick in
-        ProposedAction(type="rollback-deployment", params={}),
-        ProposedAction(type="patch-config", params={}),
-    ]:
-        print(a.type, "->", " ".join(build_command(a, "sample-app", "default")))
+    a = ProposedAction(type="raise-memory-limit", params={"memory_limit": "512Mi"})
+    cmd = build_command(a, "sample-app", "default")
+    preview(cmd, "sample-app", "default")
+    print(apply(cmd))
 
 
 if __name__ == '__main__':
